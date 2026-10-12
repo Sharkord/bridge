@@ -1,0 +1,36 @@
+[package]
+name = "sharkord-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+description = "Global hotkeys for Sharkord running in a browser"
+
+[dependencies]
+dirs = "6"
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+getrandom = "0.3"
+png = "0.18"
+rdev = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = "0.26"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.12", default-features = false, features = ["tokio"] }
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+ksni = { version = "0.3", features = ["tokio"] }
+
+[target.'cfg(windows)'.dependencies]
+arboard = { version = "3", default-features = false }
+tray-icon = { version = "0.21", default-features = false }
+winreg = "0.55"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+opt-level = "z"

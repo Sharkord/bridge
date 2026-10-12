@@ -1,0 +1,139 @@
+name: release
+
+# every push to main ships: it must pass the tests, then the version is bumped
+# (patch by default, put #minor or #major in the commit message for more), the
+# bump is committed and tagged, both platforms are built from that tag and a
+# draft release with the binaries is created for a human to publish
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# two pushes in a row must not race for the same version
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libx11-dev libxtst-dev libxi-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+
+  version:
+    needs: test
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bump the version, commit and tag
+        id: bump
+        run: |
+          set -euo pipefail
+
+          current=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+          IFS=. read -r major minor patch <<< "$current"
+          message=$(git log -1 --pretty=%B)
+
+          if grep -qiF '#major' <<< "$message"; then
+            major=$((major + 1)); minor=0; patch=0
+          elif grep -qiF '#minor' <<< "$message"; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          next="$major.$minor.$patch"
+          tag="v$next"
+
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "the tag $tag already exists" >&2
+            exit 1
+          fi
+
+          sed -i -E "0,/^version = \".*\"/s//version = \"$next\"/" Cargo.toml
+          cargo update --workspace
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): $tag [skip ci]"
+          git tag "$tag"
+          git push origin HEAD:main
+          git push origin "$tag"
+
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x86_64
+          - os: windows-latest
+            name: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libx11-dev libxtst-dev libxi-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir dist
+          cp target/release/sharkord-bridge README.md dist/
+          tar -czf "sharkord-bridge-${{ needs.version.outputs.tag }}-${{ matrix.name }}.tar.gz" -C dist .
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/sharkord-bridge.exe, README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath "sharkord-bridge-${{ needs.version.outputs.tag }}-${{ matrix.name }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sharkord-bridge-${{ matrix.name }}
+          path: |
+            sharkord-bridge-*.tar.gz
+            sharkord-bridge-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.version.outputs.tag }}" dist/* \
+            --repo "${{ github.repository }}" \
+            --title "${{ needs.version.outputs.tag }}" \
+            --generate-notes \
+            --verify-tag \
+            --draft
