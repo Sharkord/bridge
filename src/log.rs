@@ -1,3 +1,4 @@
+use crate::paths;
 use std::fmt::Arguments;
 use std::fs::{self, File};
 use std::io::Write;
@@ -57,7 +58,9 @@ pub fn level() -> Level {
 }
 
 pub fn log_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("sharkord-bridge").join("bridge.log"))
+    paths::app_config_dir()
+        .ok()
+        .map(|dir| dir.join("bridge.log"))
 }
 
 // UTC, because local time would need a timezone database for one log line

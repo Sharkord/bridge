@@ -1,4 +1,4 @@
-use super::TITLE;
+use super::{COPY_LABEL, OPEN_LABEL, QUIT_LABEL, TITLE};
 use crate::icon;
 use crate::window;
 use crate::{log_info, log_warn};
@@ -10,11 +10,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 fn copy_token(token: &str) {
-    let result = Clipboard::new().and_then(|mut clipboard| clipboard.set_text(token.to_string()));
-
-    match result {
-        Ok(()) => log_info!("pairing token copied to the clipboard"),
-        Err(error) => log_warn!("could not copy the token: {error}"),
+    match Clipboard::new() {
+        Ok(mut clipboard) => super::copy_token(&mut clipboard, token),
+        Err(error) => log_warn!("could not open the clipboard: {error}"),
     }
 }
 
@@ -22,9 +20,9 @@ fn copy_token(token: &str) {
 // its own instead of sharing the async runtime
 pub fn spawn(token: String) {
     std::thread::spawn(move || {
-        let open = MenuItem::new("Open", true, None);
-        let copy = MenuItem::new("Copy pairing token", true, None);
-        let quit = MenuItem::new("Quit", true, None);
+        let open = MenuItem::new(OPEN_LABEL, true, None);
+        let copy = MenuItem::new(COPY_LABEL, true, None);
+        let quit = MenuItem::new(QUIT_LABEL, true, None);
         let menu = Menu::new();
 
         if menu.append_items(&[&open, &copy, &quit]).is_err() {

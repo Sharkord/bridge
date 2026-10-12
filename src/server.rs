@@ -1,8 +1,7 @@
-use crate::hub::{ConnId, HubMsg, RawBinding};
+use crate::hub::{server_label, ConnId, HubMsg};
+use crate::protocol::{self, ClientMsg};
 use crate::{log_debug, log_info, log_warn, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
-use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,22 +16,6 @@ const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum ClientMsg {
-    Hello {
-        v: u32,
-        token: String,
-        #[serde(rename = "serverId")]
-        server_id: String,
-        #[serde(rename = "serverName", default)]
-        server_name: String,
-    },
-    Bindings {
-        bindings: Vec<RawBinding>,
-    },
-}
-
 fn tokens_match(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -42,16 +25,6 @@ fn tokens_match(a: &str, b: &str) -> bool {
         .zip(b.bytes())
         .fold(0u8, |acc, (x, y)| acc | (x ^ y))
         == 0
-}
-
-fn ready_message() -> String {
-    json!({
-        "type": "ready",
-        "v": PROTOCOL_VERSION,
-        "capabilities": { "keyUp": true },
-        "platform": std::env::consts::OS,
-    })
-    .to_string()
 }
 
 pub async fn serve(listener: TcpListener, token: Arc<str>, hub: UnboundedSender<HubMsg>) {
@@ -125,7 +98,7 @@ async fn handle(stream: TcpStream, token: Arc<str>, hub: UnboundedSender<HubMsg>
     let id: ConnId = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = unbounded_channel::<String>();
 
-    log_info!("connected: {server_name} ({server_id})");
+    log_info!("connected: {}", server_label(&server_name, &server_id));
 
     let _ = hub.send(HubMsg::Register {
         id,
@@ -134,7 +107,11 @@ async fn handle(stream: TcpStream, token: Arc<str>, hub: UnboundedSender<HubMsg>
         tx,
     });
 
-    if ws.send(Message::Text(ready_message().into())).await.is_ok() {
+    if ws
+        .send(Message::Text(protocol::ready().into()))
+        .await
+        .is_ok()
+    {
         loop {
             tokio::select! {
                 incoming = ws.next() => match incoming {
@@ -165,5 +142,5 @@ async fn handle(stream: TcpStream, token: Arc<str>, hub: UnboundedSender<HubMsg>
     let _ = ws.close(None).await;
     let _ = hub.send(HubMsg::Closed { id });
 
-    log_info!("disconnected: {server_name} ({server_id})");
+    log_info!("disconnected: {}", server_label(&server_name, &server_id));
 }

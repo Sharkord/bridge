@@ -1,17 +1,16 @@
 name: release
 
-# every push to main ships: it must pass the tests, then the version is bumped
-# (patch by default, put #minor or #major in the commit message for more), the
-# bump is committed and tagged, both platforms are built from that tag and a
-# draft release with the binaries is created for a human to publish
+# started by hand from the actions tab: it must pass the tests, then the version
+# is bumped (patch by default, put #minor or #major in the latest commit message
+# for more), the bump is committed and tagged, both platforms are built from that
+# tag and a draft release with the binaries is created for a human to publish
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-# two pushes in a row must not race for the same version
+# two runs in a row must not race for the same version
 concurrency:
   group: release
   cancel-in-progress: false

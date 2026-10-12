@@ -15,6 +15,19 @@ impl Mods {
             && (!required.shift || self.shift)
             && (!required.meta || self.meta)
     }
+
+    // the set modifiers, in ctrl, alt, shift, meta order. everything that writes
+    // a combo needs these four with its own spelling
+    pub fn names(&self, labels: [&'static str; 4]) -> Vec<&'static str> {
+        let flags = [self.ctrl, self.alt, self.shift, self.meta];
+
+        labels
+            .into_iter()
+            .zip(flags)
+            .filter(|(_, set)| *set)
+            .map(|(label, _)| label)
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,23 +64,12 @@ impl Combo {
 
     // for people to read, such as in the desktop's shortcut list
     pub fn display(&self) -> String {
-        let mut parts: Vec<String> = Vec::new();
-
-        if self.mods.ctrl {
-            parts.push("Ctrl".to_string());
-        }
-
-        if self.mods.alt {
-            parts.push("Alt".to_string());
-        }
-
-        if self.mods.shift {
-            parts.push("Shift".to_string());
-        }
-
-        if self.mods.meta {
-            parts.push("Meta".to_string());
-        }
+        let mut parts: Vec<String> = self
+            .mods
+            .names(["Ctrl", "Alt", "Shift", "Meta"])
+            .into_iter()
+            .map(String::from)
+            .collect();
 
         let key = if let Some(letter) = self.key.strip_prefix("Key") {
             letter.to_string()
@@ -84,23 +86,7 @@ impl Combo {
 
     // the exact form the client sends, so it can stand in as an id
     pub fn canonical(&self) -> String {
-        let mut parts: Vec<&str> = Vec::new();
-
-        if self.mods.ctrl {
-            parts.push("ctrl");
-        }
-
-        if self.mods.alt {
-            parts.push("alt");
-        }
-
-        if self.mods.shift {
-            parts.push("shift");
-        }
-
-        if self.mods.meta {
-            parts.push("meta");
-        }
+        let mut parts = self.mods.names(["ctrl", "alt", "shift", "meta"]);
 
         parts.push(&self.key);
 

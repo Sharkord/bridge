@@ -1,7 +1,7 @@
-use super::TITLE;
+use super::{COPY_LABEL, OPEN_LABEL, QUIT_LABEL, TITLE};
 use crate::icon;
 use crate::window;
-use crate::{log_info, log_warn};
+use crate::{log_info, log_warn, APP_ID};
 use arboard::Clipboard;
 use ksni::menu::StandardItem;
 use ksni::{Icon, MenuItem, Tray, TrayMethods};
@@ -24,16 +24,13 @@ impl BridgeTray {
             return;
         };
 
-        match clipboard.set_text(self.token.clone()) {
-            Ok(()) => log_info!("pairing token copied to the clipboard"),
-            Err(error) => log_warn!("could not copy the token: {error}"),
-        }
+        super::copy_token(clipboard, &self.token);
     }
 }
 
 impl Tray for BridgeTray {
     fn id(&self) -> String {
-        "dev.sharkord.Bridge".into()
+        APP_ID.into()
     }
 
     fn title(&self) -> String {
@@ -63,19 +60,19 @@ impl Tray for BridgeTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             StandardItem {
-                label: "Open".into(),
+                label: OPEN_LABEL.into(),
                 activate: Box::new(|_| window::open()),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "Copy pairing token".into(),
+                label: COPY_LABEL.into(),
                 activate: Box::new(|tray: &mut Self| tray.copy_token()),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "Quit".into(),
+                label: QUIT_LABEL.into(),
                 activate: Box::new(|_| window::quit()),
                 ..Default::default()
             }

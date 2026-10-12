@@ -1,19 +1,12 @@
 use crate::combo::{Combo, Mods};
 use crate::keymap::{modifier_of, InputEvent, Modifier, Phase};
+use crate::protocol::{self, RawBinding};
 use crate::status::{self, ServerStatus};
 use crate::{log_debug, log_info, log_trace, log_warn};
-use serde::Deserialize;
-use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub type ConnId = u64;
-
-#[derive(Debug, Deserialize)]
-pub struct RawBinding {
-    pub id: String,
-    pub combo: String,
-}
 
 pub enum HubMsg {
     Register {
@@ -64,6 +57,11 @@ pub struct Hub {
     publish_status: bool,
 }
 
+// how a server is named in the log
+pub fn server_label(name: &str, id: &str) -> String {
+    format!("{name} ({id})")
+}
+
 fn announce(conn_label: &str, tx: &UnboundedSender<String>, bind: &mut Bind, down: bool) {
     bind.active = down;
 
@@ -75,7 +73,7 @@ fn announce(conn_label: &str, tx: &UnboundedSender<String>, bind: &mut Bind, dow
         bind.combo.canonical()
     );
 
-    let _ = tx.send(json!({ "type": "event", "id": bind.id, "phase": phase }).to_string());
+    let _ = tx.send(protocol::event(&bind.id, down));
 }
 
 impl Hub {
@@ -198,11 +196,11 @@ impl Hub {
             if let Some(old) = self.conns.remove(&old_id) {
                 log_info!("{} was replaced by a newer connection", old.label);
 
-                let _ = old.tx.send(json!({ "type": "replaced" }).to_string());
+                let _ = old.tx.send(protocol::replaced());
             }
         }
 
-        let label = format!("{server_name} ({server_id})");
+        let label = server_label(&server_name, &server_id);
 
         self.conns.insert(
             id,
@@ -234,9 +232,7 @@ impl Hub {
                     raw.combo
                 );
 
-                let _ = conn.tx.send(
-                    json!({ "type": "error", "id": raw.id, "reason": "invalid combo" }).to_string(),
-                );
+                let _ = conn.tx.send(protocol::error(&raw.id, "invalid combo"));
 
                 continue;
             };
@@ -387,7 +383,7 @@ mod tests {
     }
 
     fn event(id: &str, phase: &str) -> String {
-        json!({ "type": "event", "id": id, "phase": phase }).to_string()
+        protocol::event(id, phase == "down")
     }
 
     #[test]
@@ -470,10 +466,7 @@ mod tests {
 
         hub.handle(press("KeyM"));
 
-        assert_eq!(
-            drain(&mut old),
-            vec![json!({ "type": "replaced" }).to_string()]
-        );
+        assert_eq!(drain(&mut old), vec![protocol::replaced()]);
         assert_eq!(drain(&mut new), vec![event("mute", "down")]);
     }
 
@@ -489,7 +482,7 @@ mod tests {
 
         assert_eq!(
             drain(&mut rx),
-            vec![json!({ "type": "error", "id": "bad", "reason": "invalid combo" }).to_string()]
+            vec![protocol::error("bad", "invalid combo")]
         );
 
         hub.handle(press("KeyG"));

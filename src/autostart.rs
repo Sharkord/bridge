@@ -5,41 +5,19 @@ use std::io;
 
 #[cfg(target_os = "linux")]
 mod platform {
+    use crate::{desktop_entry, paths, APP_ID};
     use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
 
-    const FILE_NAME: &str = "dev.sharkord.Bridge.desktop";
-
-    // the desktop entry spec wants a path with special characters in quotes
-    fn quote_exec(path: &Path) -> String {
-        let mut quoted = String::from("\"");
-
-        for character in path.display().to_string().chars() {
-            match character {
-                '"' | '`' | '$' | '\\' => {
-                    quoted.push('\\');
-                    quoted.push(character);
-                }
-                '%' => quoted.push_str("%%"),
-                other => quoted.push(other),
-            }
-        }
-
-        quoted.push('"');
-
-        quoted
-    }
-
     fn entry(exe: &Path) -> String {
-        format!(
-            "[Desktop Entry]\nType=Application\nName=Bridge\nExec={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
-            quote_exec(exe)
-        )
+        desktop_entry::render(exe, &["Terminal=false", "X-GNOME-Autostart-enabled=true"])
     }
 
-    fn entry_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|dir| dir.join("autostart").join(FILE_NAME))
+    fn entry_path() -> io::Result<PathBuf> {
+        Ok(paths::config_dir()?
+            .join("autostart")
+            .join(format!("{APP_ID}.desktop")))
     }
 
     // only an entry that starts this exact executable counts as enabled, so one
@@ -56,15 +34,11 @@ mod platform {
             };
         }
 
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        fs::write(path, entry(exe))
+        paths::write_creating_dirs(path, entry(exe))
     }
 
     pub fn is_enabled() -> bool {
-        let (Ok(exe), Some(path)) = (std::env::current_exe(), entry_path()) else {
+        let (Ok(exe), Ok(path)) = (std::env::current_exe(), entry_path()) else {
             return false;
         };
 
@@ -72,16 +46,7 @@ mod platform {
     }
 
     pub fn set_enabled(enabled: bool) -> io::Result<()> {
-        let exe = std::env::current_exe()?;
-        let path = entry_path()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no config directory"))?;
-
-        set_enabled_at(&path, &exe, enabled)
-    }
-
-    #[cfg(test)]
-    pub(super) fn quote(path: &Path) -> String {
-        quote_exec(path)
+        set_enabled_at(&entry_path()?, &std::env::current_exe()?, enabled)
     }
 }
 
@@ -151,7 +116,7 @@ pub fn set_enabled(enabled: bool) -> io::Result<()> {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::platform::{is_enabled_at, quote, set_enabled_at};
+    use super::platform::{is_enabled_at, set_enabled_at};
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -177,7 +142,7 @@ mod tests {
         assert!(content.contains("Exec=\"/opt/bridge/sharkord-bridge\"\n"));
         assert!(content.contains("Terminal=false\n"));
 
-        let _ = fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -191,7 +156,7 @@ mod tests {
         assert!(!path.exists());
         assert!(set_enabled_at(&path, exe, false).is_ok());
 
-        let _ = fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -206,13 +171,6 @@ mod tests {
 
         assert!(is_enabled_at(&path, Path::new("/new/sharkord-bridge")));
 
-        let _ = fs::remove_dir_all(path.parent().unwrap().parent().unwrap());
-    }
-
-    #[test]
-    fn quotes_paths_with_spaces_and_special_characters() {
-        assert_eq!(quote(Path::new("/my apps/bridge")), "\"/my apps/bridge\"");
-        assert_eq!(quote(Path::new("/a$b\"c")), "\"/a\\$b\\\"c\"");
-        assert_eq!(quote(Path::new("/100%")), "\"/100%%\"");
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }

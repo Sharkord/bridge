@@ -2,6 +2,7 @@ use crate::combo::Combo;
 use crate::hub::HubMsg;
 use crate::icon;
 use crate::keymap::Phase;
+use crate::{desktop_entry, paths, APP_ID};
 use crate::{log_debug, log_info, log_warn};
 use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
 use ashpd::desktop::Session;
@@ -12,8 +13,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-
-const APP_ID: &str = "dev.sharkord.Bridge";
 
 pub fn is_wayland_session() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some()
@@ -64,23 +63,7 @@ fn xkb_key(code: &str) -> Option<String> {
 
 fn preferred_trigger(combo: &Combo) -> Option<String> {
     let key = xkb_key(&combo.key)?;
-    let mut parts: Vec<&str> = Vec::new();
-
-    if combo.mods.ctrl {
-        parts.push("CTRL");
-    }
-
-    if combo.mods.alt {
-        parts.push("ALT");
-    }
-
-    if combo.mods.shift {
-        parts.push("SHIFT");
-    }
-
-    if combo.mods.meta {
-        parts.push("LOGO");
-    }
+    let mut parts = combo.mods.names(["CTRL", "ALT", "SHIFT", "LOGO"]);
 
     parts.push(&key);
 
@@ -88,10 +71,9 @@ fn preferred_trigger(combo: &Combo) -> Option<String> {
 }
 
 fn desktop_file_path() -> io::Result<PathBuf> {
-    let dir = dirs::data_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no data directory"))?;
-
-    Ok(dir.join("applications").join(format!("{APP_ID}.desktop")))
+    Ok(paths::data_dir()?
+        .join("applications")
+        .join(format!("{APP_ID}.desktop")))
 }
 
 // the desktop entry points at the icon by absolute path. a bare icon name has
@@ -99,10 +81,7 @@ fn desktop_file_path() -> io::Result<PathBuf> {
 // file that appeared after it was built, which leaves the taskbar with a
 // generic icon
 fn icon_path() -> io::Result<PathBuf> {
-    let dir = dirs::data_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no data directory"))?;
-
-    Ok(dir.join("sharkord-bridge").join("icon.png"))
+    Ok(paths::app_data_dir()?.join("icon.png"))
 }
 
 fn ensure_icon_file(path: &Path) -> io::Result<()> {
@@ -110,19 +89,13 @@ fn ensure_icon_file(path: &Path) -> io::Result<()> {
         return Ok(());
     }
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    fs::write(path, icon::png_bytes())
+    paths::write_creating_dirs(path, icon::png_bytes())
 }
 
-fn desktop_entry(exe: &Path, icon: &Path) -> String {
-    format!(
-        "[Desktop Entry]\nType=Application\nName=Bridge\nExec={}\nIcon={}\nNoDisplay=true\nTerminal=false\n",
-        exe.display(),
-        icon.display()
-    )
+fn entry(exe: &Path, icon: &Path) -> String {
+    let icon_line = format!("Icon={}", icon.display());
+
+    desktop_entry::render(exe, &[&icon_line, "NoDisplay=true", "Terminal=false"])
 }
 
 // the portal knows an unsandboxed app only through a desktop file named after
@@ -134,7 +107,7 @@ fn ensure_desktop_file() -> io::Result<()> {
 
     ensure_icon_file(&icon)?;
 
-    let content = desktop_entry(&exe, &icon);
+    let content = entry(&exe, &icon);
 
     if fs::read_to_string(&path).is_ok_and(|existing| existing == content) {
         return Ok(());
@@ -145,11 +118,7 @@ fn ensure_desktop_file() -> io::Result<()> {
         path.display()
     );
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    fs::write(path, content)
+    paths::write_creating_dirs(&path, content)
 }
 
 async fn bind<'a>(
@@ -283,9 +252,9 @@ mod tests {
 
     #[test]
     fn desktop_entry_refers_to_the_icon_by_absolute_path() {
-        let entry = desktop_entry(Path::new("/opt/bridge"), Path::new("/data/icon.png"));
+        let entry = entry(Path::new("/opt/bridge"), Path::new("/data/icon.png"));
 
-        assert!(entry.contains("Exec=/opt/bridge\n"));
+        assert!(entry.contains("Exec=\"/opt/bridge\"\n"));
         assert!(entry.contains("Icon=/data/icon.png\n"));
         assert!(entry.contains("Name=Bridge\n"));
     }

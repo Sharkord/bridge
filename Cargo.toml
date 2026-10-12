@@ -28,6 +28,9 @@ tray-icon = { version = "0.21", default-features = false }
 winreg = "0.55"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
+[build-dependencies]
+winresource = { version = "0.1", default-features = false }
+
 [profile.release]
 lto = true
 codegen-units = 1

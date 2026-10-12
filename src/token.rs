@@ -1,12 +1,10 @@
+use crate::paths;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 
 fn token_path() -> io::Result<PathBuf> {
-    let dir = dirs::config_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no config directory"))?;
-
-    Ok(dir.join("sharkord-bridge").join("token"))
+    Ok(paths::app_config_dir()?.join("token"))
 }
 
 fn generate() -> io::Result<String> {
@@ -32,11 +30,7 @@ pub fn load_or_create() -> io::Result<(String, PathBuf)> {
 
     let token = generate()?;
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    fs::write(&path, &token)?;
+    paths::write_creating_dirs(&path, &token)?;
 
     #[cfg(unix)]
     {

@@ -1,3 +1,4 @@
+use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -11,7 +12,9 @@ pub struct ServerStatus {
 }
 
 pub fn status_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("sharkord-bridge").join("status.json"))
+    paths::app_config_dir()
+        .ok()
+        .map(|dir| dir.join("status.json"))
 }
 
 // the window is a separate short lived process, so what it shows travels

@@ -1,7 +1,7 @@
 use crate::autostart;
 use crate::icon;
 use crate::status::{self, ServerStatus};
-use crate::{token, PORT};
+use crate::{token, APP_ID, PORT};
 use eframe::egui;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
@@ -39,6 +39,11 @@ fn text_colors(dark: bool) -> (egui::Color32, egui::Color32) {
     } else {
         (egui::Color32::from_gray(25), egui::Color32::from_gray(95))
     }
+}
+
+// text in one color, which every part of the window styles the same way
+fn tinted_text(text: impl Into<String>, color: egui::Color32) -> egui::RichText {
+    egui::RichText::new(text).color(color)
 }
 
 fn apply_style(ctx: &egui::Context) {
@@ -95,7 +100,7 @@ impl BridgeWindow {
         ui.add_space(6.0);
 
         if self.servers.is_empty() {
-            ui.label(egui::RichText::new("No Sharkord server is connected yet.").color(muted));
+            ui.label(tinted_text("No Sharkord server is connected yet.", muted));
 
             return;
         }
@@ -103,9 +108,9 @@ impl BridgeWindow {
         for server in &self.servers {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&server.name).strong());
-                ui.label(egui::RichText::new(format!("{} hotkey(s)", server.hotkeys)).color(muted));
+                ui.label(tinted_text(format!("{} hotkey(s)", server.hotkeys), muted));
             });
-            ui.label(egui::RichText::new(&server.id).small().color(muted));
+            ui.label(tinted_text(&server.id, muted).small());
             ui.add_space(6.0);
         }
     }
@@ -126,28 +131,18 @@ impl BridgeWindow {
         }
 
         if let Some(error) = &self.autostart_error {
-            ui.label(
-                egui::RichText::new(error)
-                    .small()
-                    .color(egui::Color32::from_rgb(235, 100, 100)),
-            );
+            let red = egui::Color32::from_rgb(235, 100, 100);
+
+            ui.label(tinted_text(error, red).small());
         }
     }
 
     fn footer(ui: &mut egui::Ui, muted: egui::Color32) {
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(format!("Listening on 127.0.0.1:{PORT}"))
-                    .small()
-                    .color(muted),
-            );
+            ui.label(tinted_text(format!("Listening on 127.0.0.1:{PORT}"), muted).small());
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                        .small()
-                        .color(muted),
-                );
+                ui.label(tinted_text(format!("v{}", env!("CARGO_PKG_VERSION")), muted).small());
             });
         });
     }
@@ -202,7 +197,7 @@ pub fn run() {
     let icon = icon::load();
     let viewport = egui::ViewportBuilder::default()
         .with_title("Bridge")
-        .with_app_id("dev.sharkord.Bridge")
+        .with_app_id(APP_ID)
         .with_inner_size([460.0, 340.0])
         .with_min_inner_size([400.0, 260.0])
         .with_icon(egui::IconData {
