@@ -1,21 +1,28 @@
 use crate::combo::Combo;
 use crate::hub::HubMsg;
-use crate::icon;
 use crate::keymap::Phase;
-use crate::{desktop_entry, paths, APP_ID};
+use crate::APP_ID;
 use crate::{log_debug, log_info, log_warn};
 use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
 use ashpd::desktop::Session;
 use ashpd::AppID;
 use futures_util::StreamExt;
 use std::error::Error;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-pub fn is_wayland_session() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some()
+// the portal gives a global shortcut to the desktop, which then takes that key
+// away from every other app, so it is only used when asked for
+pub fn wants_portal(wayland: bool, setting: Option<&str>) -> bool {
+    wayland && matches!(setting, Some("1") | Some("true"))
+}
+
+pub fn is_enabled() -> bool {
+    let setting = std::env::var("SHARKORD_BRIDGE_PORTAL").ok();
+
+    wants_portal(
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        setting.as_deref(),
+    )
 }
 
 // the shortcuts spec names keys the way XKB does, so only keys with a
@@ -68,57 +75,6 @@ fn preferred_trigger(combo: &Combo) -> Option<String> {
     parts.push(&key);
 
     Some(parts.join("+"))
-}
-
-fn desktop_file_path() -> io::Result<PathBuf> {
-    Ok(paths::data_dir()?
-        .join("applications")
-        .join(format!("{APP_ID}.desktop")))
-}
-
-// the desktop entry points at the icon by absolute path. a bare icon name has
-// to be found through the desktop's icon theme, whose cache does not notice a
-// file that appeared after it was built, which leaves the taskbar with a
-// generic icon
-fn icon_path() -> io::Result<PathBuf> {
-    Ok(paths::app_data_dir()?.join("icon.png"))
-}
-
-fn ensure_icon_file(path: &Path) -> io::Result<()> {
-    if fs::read(path).is_ok_and(|existing| existing == icon::png_bytes()) {
-        return Ok(());
-    }
-
-    paths::write_creating_dirs(path, icon::png_bytes())
-}
-
-fn entry(exe: &Path, icon: &Path) -> String {
-    let icon_line = format!("Icon={}", icon.display());
-
-    desktop_entry::render(exe, &[&icon_line, "NoDisplay=true", "Terminal=false"])
-}
-
-// the portal knows an unsandboxed app only through a desktop file named after
-// its id, so one is kept pointing at this binary
-fn ensure_desktop_file() -> io::Result<()> {
-    let path = desktop_file_path()?;
-    let exe = std::env::current_exe()?;
-    let icon = icon_path()?;
-
-    ensure_icon_file(&icon)?;
-
-    let content = entry(&exe, &icon);
-
-    if fs::read_to_string(&path).is_ok_and(|existing| existing == content) {
-        return Ok(());
-    }
-
-    log_info!(
-        "writing the desktop file the portal needs: {}",
-        path.display()
-    );
-
-    paths::write_creating_dirs(&path, content)
 }
 
 async fn bind<'a>(
@@ -184,7 +140,6 @@ async fn run(
     hub: UnboundedSender<HubMsg>,
     mut wanted: UnboundedReceiver<Vec<Combo>>,
 ) -> Result<(), Box<dyn Error>> {
-    ensure_desktop_file()?;
     ashpd::register_host_app(AppID::try_from(APP_ID)?).await?;
 
     log_info!("registered with the desktop portal as {APP_ID}");
@@ -251,12 +206,12 @@ mod tests {
     }
 
     #[test]
-    fn desktop_entry_refers_to_the_icon_by_absolute_path() {
-        let entry = entry(Path::new("/opt/bridge"), Path::new("/data/icon.png"));
-
-        assert!(entry.contains("Exec=\"/opt/bridge\"\n"));
-        assert!(entry.contains("Icon=/data/icon.png\n"));
-        assert!(entry.contains("Name=Bridge\n"));
+    fn only_uses_the_portal_on_wayland_when_asked() {
+        assert!(wants_portal(true, Some("1")));
+        assert!(wants_portal(true, Some("true")));
+        assert!(!wants_portal(true, None));
+        assert!(!wants_portal(true, Some("0")));
+        assert!(!wants_portal(false, Some("1")));
     }
 
     #[test]

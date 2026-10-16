@@ -3,18 +3,27 @@
 use sharkord_bridge::combo::Combo;
 use sharkord_bridge::hub::HubMsg;
 use sharkord_bridge::{
-    gui, hub, input, log, log_error, log_info, server, status, token, tray, PORT,
+    gui, hub, input, log, log_error, log_info, log_warn, server, status, token, tray, PORT,
 };
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
-// on Wayland global keys come from the desktop portal, in addition to the X11
-// listener which still sees whatever XWayland apps (most games) have focus
+// the global input listener sees keys without taking them. on Wayland it only
+// sees them while an XWayland app (most games) has focus, and the desktop portal
+// would see everything but takes each key from every other app, so it is opt in
 #[cfg(target_os = "linux")]
 fn start_portal(hub: &UnboundedSender<HubMsg>) -> Option<UnboundedSender<Vec<Combo>>> {
-    if sharkord_bridge::portal::is_wayland_session() {
+    if sharkord_bridge::portal::is_enabled() {
+        log_warn!("using the desktop portal: the keys you bind are taken from every other app");
+
         return Some(sharkord_bridge::portal::spawn(hub.clone()));
+    }
+
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        log_info!(
+            "on Wayland keys are only seen while an XWayland app has focus, set SHARKORD_BRIDGE_PORTAL=1 to use the desktop portal instead"
+        );
     }
 
     None
@@ -88,6 +97,11 @@ async fn run() {
 
     // a stale list from a previous run would show servers that are long gone
     status::write(&[]);
+
+    #[cfg(target_os = "linux")]
+    if let Err(error) = sharkord_bridge::desktop_entry::install() {
+        log_warn!("could not write the desktop entry: {error}");
+    }
 
     let (hub_tx, hub_rx) = unbounded_channel();
 
